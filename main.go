@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -18,38 +19,55 @@ type Reminder struct {
 	SendAt string `json:"send_at"`
 }
 
-var store []Reminder
+var (
+	store   []Reminder
+	storeMu sync.Mutex
+)
+
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+func handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
+	var rem Reminder
+
+	err := json.NewDecoder(r.Body).Decode(&rem)
+	if err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	if rem.Text == "" || rem.ChatID == 0 {
+		http.Error(w, "text and chat_id required", http.StatusBadRequest)
+		return
+	}
+	storeMu.Lock()
+	defer storeMu.Unlock()
+	store = append(store, rem)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(rem)
+}
+
+func handleListSchedule(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	storeMu.Lock()
+	defer storeMu.Unlock()
+	json.NewEncoder(w).Encode(store)
+}
 
 func main() {
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
 
-	mux.HandleFunc("POST /schedule", func(w http.ResponseWriter, r *http.Request) {
-		var rem Reminder
+	mux.HandleFunc("GET /healthz", handleHealthz) ///
+	mux.HandleFunc("POST /schedule", handleCreateSchedule)
+	mux.HandleFunc("GET /schedule", handleListSchedule)
 
-		log.Info("decoded reminder", "rem", rem)
-		err := json.NewDecoder(r.Body).Decode(&rem)
-		if err != nil {
-			http.Error(w, "bad json", http.StatusBadRequest)
-			return
-		}
-		if rem.Text == "" || rem.ChatID == 0 {
-			http.Error(w, "text and chat_id required", http.StatusBadRequest)
-			return
-		}
-
-		store = append(store, rem)
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(rem)
-	})
 	srv := &http.Server{
 		Addr:              ":8080",
 		Handler:           mux,
