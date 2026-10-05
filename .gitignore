@@ -1,0 +1,5 @@
+/dispatcher
+*.exe
+.vscode/
+.idea/
+.DS_Store
