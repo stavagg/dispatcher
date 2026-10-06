@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS reminders (
+    id SERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    text TEXT NOT NULL,
+    send_at TIMESTAMPTZ NOT NULL
+);
